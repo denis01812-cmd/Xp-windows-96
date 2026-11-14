@@ -12,49 +12,71 @@ $logs = Join-Path (Split-Path -Parent $PSScriptRoot) 'build\windows-qemu-logs'
 $null = New-Item -ItemType Directory -Path $logs -Force
 $oldTemp = $env:TEMP
 $oldTmp = $env:TMP
+$utf8 = [System.Text.UTF8Encoding]::new($false)
 
 try {
     $unicode = -join ([char[]](0x0432, 0x0444, 0x0432, 0x0444))
-    $root = Join-Path $temporary ('Package, [' + $unicode + '] & spaces !')
-    $null = New-Item -ItemType Directory -Path $root
-    $null = New-Item -ItemType Directory -Path (Join-Path $root 'tools')
-    foreach ($name in @('Start-XP96.bat', 'xp96.img', 'tools\run-windows.ps1')) {
-        Copy-Item -LiteralPath (Join-Path $PackagePath $name) -Destination (Join-Path $root $name)
+    $unicodeRoot = Join-Path $temporary ('Package, [' + $unicode + '] & spaces !')
+    $asciiRoot = Join-Path $temporary 'ASCII-control'
+    foreach ($root in @($asciiRoot, $unicodeRoot)) {
+        $null = New-Item -ItemType Directory -Path $root
+        $null = New-Item -ItemType Directory -Path (Join-Path $root 'tools')
+        foreach ($name in @('Start-XP96.bat', 'xp96.img', 'tools\run-windows.ps1')) {
+            Copy-Item -LiteralPath (Join-Path $PackagePath $name) -Destination (Join-Path $root $name)
+        }
     }
-    $scriptPath = Join-Path $root 'tools\run-windows.ps1'
-    $image = Join-Path $root 'xp96.img'
-    $originalHash = (Get-FileHash -LiteralPath $image -Algorithm SHA256).Hash
-    $renamedImage = Join-Path $root ($unicode + '.img')
-    Copy-Item -LiteralPath $image -Destination $renamedImage
+    $originalHash = (Get-FileHash -LiteralPath (Join-Path $asciiRoot 'xp96.img') -Algorithm SHA256).Hash
+    $renamedImage = Join-Path $unicodeRoot ($unicode + '.img')
+    Copy-Item -LiteralPath (Join-Path $unicodeRoot 'xp96.img') -Destination $renamedImage
     $unicodeTemp = Join-Path $temporary ($unicode + ' TEMP')
     $null = New-Item -ItemType Directory -Path $unicodeTemp
 
-    foreach ($case in @('unicode-directory', 'unicode-filename-and-temp')) {
-        $stdout = Join-Path $logs ($case + '.stdout.log')
-        $stderr = Join-Path $logs ($case + '.stderr.log')
+    foreach ($case in @('ascii-control', 'unicode-directory', 'unicode-filename-and-temp')) {
+        $root = if ($case -eq 'ascii-control') { $asciiRoot } else { $unicodeRoot }
+        $scriptPath = Join-Path $root 'tools\run-windows.ps1'
         $parameters = @('-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $scriptPath, '-QemuPath', $qemu, '-Headless')
         if ($case -eq 'unicode-filename-and-temp') {
             $parameters += @('-ImagePath', $renamedImage)
             $env:TEMP = $unicodeTemp
             $env:TMP = $unicodeTemp
         }
-        $argumentString = ($parameters | ForEach-Object { '"' + $_ + '"' }) -join ' '
-        $process = Start-Process -FilePath "$PSHOME\powershell.exe" -ArgumentList $argumentString -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+        $start = [System.Diagnostics.ProcessStartInfo]::new()
+        $start.FileName = "$PSHOME\powershell.exe"
+        $start.Arguments = ($parameters | ForEach-Object { '"' + $_ + '"' }) -join ' '
+        $start.UseShellExecute = $false
+        $start.CreateNoWindow = $true
+        # Keep a valid stdin pipe open: Windows QEMU's stdio chardev needs an
+        # actual input handle even when this test never sends serial input.
+        $start.RedirectStandardInput = $true
+        $start.RedirectStandardOutput = $true
+        $start.RedirectStandardError = $true
+        $start.StandardOutputEncoding = $utf8
+        $start.StandardErrorEncoding = $utf8
+        $process = [System.Diagnostics.Process]::new()
+        $process.StartInfo = $start
+        $output = [System.Text.StringBuilder]::new()
         $ready = $false
         try {
+            $null = $process.Start()
+            $errorTask = $process.StandardError.ReadToEndAsync()
+            $lineTask = $process.StandardOutput.ReadLineAsync()
             $deadline = [DateTime]::UtcNow.AddSeconds(45)
             do {
-                if ([System.IO.File]::Exists($stdout)) {
-                    $output = [System.IO.File]::ReadAllText($stdout)
-                    if ($output.Contains('XP96:PANIC')) { throw ("Kernel panic: " + $output) }
-                    if ($output.Contains('XP96:DESKTOP_READY')) { $ready = $true; break }
+                if ($lineTask.IsCompleted) {
+                    $line = $lineTask.Result
+                    if ($null -eq $line) { break }
+                    $null = $output.AppendLine($line)
+                    if ($line.Contains('XP96:PANIC')) { throw ("Kernel panic: " + $output) }
+                    if ($line.Contains('XP96:DESKTOP_READY')) { $ready = $true; break }
+                    $lineTask = $process.StandardOutput.ReadLineAsync()
+                } else {
+                    if ($process.HasExited -and -not $lineTask.Wait(1000)) { break }
+                    Start-Sleep -Milliseconds 20
                 }
-                if ($process.HasExited) { break }
-                Start-Sleep -Milliseconds 100
             } while ([DateTime]::UtcNow -lt $deadline)
         } finally {
-            # Stop only the VM belonging to this launcher, allowing its finally
-            # block to remove any temporary copy before terminating the parent.
+            # Stop only this launcher's VM. Let its finally block clean up a
+            # temporary image before terminating the parent as a last resort.
             if (-not $process.HasExited) {
                 Get-CimInstance Win32_Process -Filter ("ParentProcessId = " + $process.Id) |
                     Where-Object { $_.Name -like 'qemu-system-*.exe' } |
@@ -64,20 +86,18 @@ try {
                     $process.WaitForExit()
                 }
             }
+            $errorText = $errorTask.Result
+            [System.IO.File]::WriteAllText((Join-Path $logs ($case + '.stdout.log')), $output.ToString(), $utf8)
+            [System.IO.File]::WriteAllText((Join-Path $logs ($case + '.stderr.log')), $errorText, $utf8)
             $process.Dispose()
         }
-        if (-not $ready) {
-            $out = [System.IO.File]::ReadAllText($stdout)
-            $errorText = [System.IO.File]::ReadAllText($stderr)
-            throw ("Native QEMU boot failed ($case):`n$out`n$errorText")
-        }
+        if (-not $ready) { throw ("Native QEMU boot failed ($case):`n$output`n$errorText") }
         Write-Host ("PASS real Windows QEMU boot to DESKTOP_READY: " + $case)
     }
-    if ((Get-FileHash -LiteralPath $image -Algorithm SHA256).Hash -ne $originalHash) {
-        throw 'The original disk image was modified.'
-    }
-    if ((Get-FileHash -LiteralPath $renamedImage -Algorithm SHA256).Hash -ne $originalHash) {
-        throw 'The Unicode-named disk image was modified.'
+    foreach ($image in @((Join-Path $asciiRoot 'xp96.img'), (Join-Path $unicodeRoot 'xp96.img'), $renamedImage)) {
+        if ((Get-FileHash -LiteralPath $image -Algorithm SHA256).Hash -ne $originalHash) {
+            throw 'An original disk image was modified.'
+        }
     }
 } finally {
     $env:TEMP = $oldTemp
