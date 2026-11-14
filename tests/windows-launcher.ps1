@@ -83,6 +83,8 @@ public class Xp96QemuStub {
         if (!File.Exists(image)) return 84;
         byte[] header = File.ReadAllBytes(image);
         if (header.Length < 512 || header[510] != 0x55 || header[511] != 0xaa) return 85;
+        // Simulate guest writes: these must affect only the disposable copy.
+        using (FileStream disk = File.Open(image, FileMode.Open, FileAccess.Write)) disk.WriteByte(0x90);
         int code;
         return int.TryParse(Environment.GetEnvironmentVariable("XP96_TEST_EXIT"), out code) ? code : 0;
     }
@@ -100,14 +102,17 @@ public class Xp96QemuStub {
     Assert-True ($plan.Image -eq $image) 'Image must be resolved relative to the launcher, not the working directory.'
     Assert-True ($plan.Qemu -eq $stub) 'The explicitly selected executable must be used.'
     $drive = 'file=./xp96.img,format=raw,if=ide'
-    Assert-True ($plan.WorkingDirectory -eq $root) 'Use the Unicode image directory as the native working directory.'
+    Assert-True ($plan.StageImage -eq $true) 'Always protect the original disk with a private raw copy.'
+    Assert-True (-not (Test-Path -LiteralPath $plan.WorkingDirectory)) 'Planning must not create the private run directory.'
     Assert-True ($plan.Arguments -contains $drive) 'Pass an ASCII relative filename, not a Unicode absolute path.'
-    foreach ($argument in @('-snapshot', 'tcg', '64M', '-nic', 'none')) {
+    foreach ($argument in @('tcg', '64M', '-nic', 'none')) {
         Assert-True ($plan.Arguments -contains $argument) ("Missing safe launch argument: " + $argument)
     }
+    Assert-True (-not ($plan.Arguments -contains '-snapshot')) 'Do not let QEMU create a broken Unicode TEMP overlay.'
     Assert-True (-not (Test-Path -LiteralPath $env:XP96_TEST_ARGS)) 'CheckOnly must not execute QEMU.'
     Write-Host 'PASS PowerShell command planning, safe defaults and unusual paths'
 
+    $sourceHash = (Get-FileHash -LiteralPath $image -Algorithm SHA256).Hash
     $result = Invoke-Batch
     Assert-True ($result.Code -eq 0) ("Batch launch failed: " + $result.Error + $result.Out)
     $received = @(Get-Content -LiteralPath $env:XP96_TEST_ARGS -Encoding UTF8)
@@ -116,7 +121,9 @@ public class Xp96QemuStub {
     $result = Invoke-Batch
     Assert-True ($result.Code -eq 7) 'The QEMU failure code must reach the caller.'
     $env:XP96_TEST_EXIT = '0'
-    Assert-True ((Get-Content -LiteralPath $env:XP96_TEST_CWD -Raw -Encoding UTF8) -eq $root) 'The real child must run in the image directory.'
+    $runDirectory = Get-Content -LiteralPath $env:XP96_TEST_CWD -Raw -Encoding UTF8
+    Assert-True (-not (Test-Path -LiteralPath $runDirectory)) 'Clean up the private copy when QEMU exits.'
+    Assert-True ((Get-FileHash -LiteralPath $image -Algorithm SHA256).Hash -eq $sourceHash) 'Writes to the emulated disk must not change the original.'
     Write-Host 'PASS double-click batch entry point, relative file opening and error propagation'
 
     $copy = Join-Path $root 'copy, [with space].img'
@@ -124,11 +131,11 @@ public class Xp96QemuStub {
     $result = Invoke-Script -Parameters @('-ImagePath', $copy, '-CheckOnly', '-Headless')
     Assert-True ($result.Code -eq 0) ("Custom image planning failed: " + $result.Error)
     $copyPlan = $result.Out | ConvertFrom-Json
-    Assert-True ($copyPlan.Arguments -contains 'file=./copy,, [with space].img,format=raw,if=ide') 'Escape literal commas in the relative basename.'
+    Assert-True ($copyPlan.Arguments -contains 'file=./xp96.img,format=raw,if=ide') 'Do not pass spaces or commas from a custom source name to native argv.'
     Assert-True ($copyPlan.Arguments -contains '-display') 'Headless mode must request no display.'
     $result = Invoke-Script -Parameters @('-ImagePath', $copy, '-Headless')
     Assert-True ($result.Code -eq 0) ("Relative custom filename failed: " + $result.Error)
-    Write-Host 'PASS custom ASCII filename, comma escaping and headless mode'
+    Write-Host 'PASS source filename with spaces/commas and headless mode'
 
     $unicodeImage = Join-Path $root ($unicode + '.img')
     Copy-Item -LiteralPath $image -Destination $unicodeImage

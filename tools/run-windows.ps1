@@ -74,26 +74,18 @@ try {
     $root = Split-Path -Parent $PSScriptRoot
     $image = Find-Xp96Image -Requested $ImagePath -Root $root
     $qemu = Find-Xp96Qemu -Requested $QemuPath
-    # Some Windows QEMU builds decode native argv using the system code page,
-    # not UTF-8. Do not pass a Unicode absolute image path on the command line.
-    # PowerShell sets the child's working directory using the Windows wide API.
-    $workingDirectory = [System.IO.Path]::GetDirectoryName($image)
-    $diskName = [System.IO.Path]::GetFileName($image)
-    $stagingDirectory = $null
-    if ($diskName -cmatch '[^\x20-\x7e]') {
-        # Custom image names may also contain Unicode. A temporary ASCII-named
-        # copy covers that case without renaming or modifying the original.
-        $stagingDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ('xp96-image-' + [guid]::NewGuid())
-        $workingDirectory = $stagingDirectory
-        $diskName = 'xp96.img'
-    }
-    # QEMU's -drive parser escapes a literal comma as two consecutive commas.
-    $escapedName = $diskName.Replace(',', ',,')
+    # Windows QEMU may misdecode Unicode argv and Unicode TEMP paths when
+    # creating its own -snapshot overlay. Use a small private raw image copy
+    # instead. Only its ASCII basename crosses the native command line; the
+    # Unicode working directory is passed through the Windows wide API.
+    $stagingDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ('xp96-image-' + [guid]::NewGuid())
+    $workingDirectory = $stagingDirectory
+    $diskName = 'xp96.img'
     $qemuArguments = @(
         '-machine', 'pc', '-accel', 'tcg', '-cpu', 'qemu32',
         '-m', '64M', '-vga', 'std',
-        '-drive', "file=./$escapedName,format=raw,if=ide",
-        '-boot', 'c', '-snapshot', '-nic', 'none',
+        '-drive', 'file=./xp96.img,format=raw,if=ide',
+        '-boot', 'c', '-nic', 'none',
         '-serial', 'stdio', '-monitor', 'none'
     )
     if ($Headless) { $qemuArguments += @('-display', 'none') }
@@ -102,7 +94,7 @@ try {
             Qemu = $qemu
             Image = $image
             WorkingDirectory = $workingDirectory
-            StageImage = ($null -ne $stagingDirectory)
+            StageImage = $true
             Arguments = $qemuArguments
         } | ConvertTo-Json -Depth 3
         exit 0
@@ -112,10 +104,10 @@ try {
     Write-Host 'RAM notes are not saved. Your Windows installation is not changed.'
     $locationChanged = $false
     try {
-        if ($stagingDirectory) {
-            $null = [System.IO.Directory]::CreateDirectory($stagingDirectory)
-            [System.IO.File]::Copy($image, (Join-Path $stagingDirectory $diskName), $false)
-        }
+        $null = [System.IO.Directory]::CreateDirectory($stagingDirectory)
+        $privateImage = Join-Path $stagingDirectory $diskName
+        [System.IO.File]::Copy($image, $privateImage, $false)
+        [System.IO.File]::SetAttributes($privateImage, [System.IO.FileAttributes]::Normal)
         Push-Location -LiteralPath $workingDirectory
         $locationChanged = $true
         & $qemu @qemuArguments
