@@ -129,6 +129,17 @@ function screenshot(filename) {
   );
 }
 
+async function waitForPixel(x, y, expected, message, equal = true) {
+  const deadline = Date.now() + 5000;
+  while ((pixel(x, y) === expected) !== equal) {
+    if (Date.now() >= deadline) {
+      if (equal) assert.equal(pixel(x, y), expected, message);
+      else assert.notEqual(pixel(x, y), expected, message);
+    }
+    await delay(20);
+  }
+}
+
 let mouseX = 682;
 let mouseY = 450;
 async function moveTo(x, y) {
@@ -164,7 +175,7 @@ try {
   console.log("PASS BIOS boot -> protected mode -> real framebuffer desktop");
 
   await clickAt(60, 580);
-  assert.equal(pixel(6, 300), 0xffffff, "PS/2 click must open Start");
+  await waitForPixel(6, 300, 0xffffff, "PS/2 click must open Start");
   screenshot(path.join(root, "build/start-menu.png"));
   await expectAfter(() => clickAt(100, 392), "XP96:OPEN terminal\n");
   console.log("PASS PS/2 mouse -> Start menu -> Terminal");
@@ -207,12 +218,11 @@ try {
   await emulator.keyboard_send_scancodes([0x1d, 0x1f, 0x9f, 0x9d]); // Ctrl+S: honest RAM-only notice.
   await hotkey(0x3d, "terminal");
   await command("cat NOTES.TXT", "BOOT_TEST_NOTE?\n");
-  await delay(100);
-  assert.equal(pixel(180, 200), 0x121e30);
+  await waitForPixel(180, 200, 0x121e30, "Terminal must become visible");
   await clickAt(730, 125); // Minimize terminal.
-  assert.notEqual(pixel(180, 200), 0x121e30);
+  await waitForPixel(180, 200, 0x121e30, "Terminal must minimize", false);
   await clickAt(345, 580); // Restore terminal from taskbar.
-  assert.equal(pixel(180, 200), 0x121e30);
+  await waitForPixel(180, 200, 0x121e30, "Terminal must restore");
   await expectAfter(
     () => emulator.keyboard_send_scancodes([0x38, 0x3e, 0xbe, 0xb8]),
     "XP96:CLOSE terminal\n",

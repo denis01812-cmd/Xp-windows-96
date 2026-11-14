@@ -2,7 +2,8 @@
 param(
     [string]$QemuPath,
     [string]$ImagePath,
-    [switch]$CheckOnly
+    [switch]$CheckOnly,
+    [switch]$Headless
 )
 
 $ErrorActionPreference = 'Stop'
@@ -73,24 +74,59 @@ try {
     $root = Split-Path -Parent $PSScriptRoot
     $image = Find-Xp96Image -Requested $ImagePath -Root $root
     $qemu = Find-Xp96Qemu -Requested $QemuPath
+    # Some Windows QEMU builds decode native argv using the system code page,
+    # not UTF-8. Do not pass a Unicode absolute image path on the command line.
+    # PowerShell sets the child's working directory using the Windows wide API.
+    $workingDirectory = [System.IO.Path]::GetDirectoryName($image)
+    $diskName = [System.IO.Path]::GetFileName($image)
+    $stagingDirectory = $null
+    if ($diskName -cmatch '[^\x20-\x7e]') {
+        # Custom image names may also contain Unicode. A temporary ASCII-named
+        # copy covers that case without renaming or modifying the original.
+        $stagingDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ('xp96-image-' + [guid]::NewGuid())
+        $workingDirectory = $stagingDirectory
+        $diskName = 'xp96.img'
+    }
     # QEMU's -drive parser escapes a literal comma as two consecutive commas.
-    $escapedImage = $image.Replace(',', ',,')
+    $escapedName = $diskName.Replace(',', ',,')
     $qemuArguments = @(
         '-machine', 'pc', '-accel', 'tcg', '-cpu', 'qemu32',
         '-m', '64M', '-vga', 'std',
-        '-drive', "file=$escapedImage,format=raw,if=ide",
+        '-drive', "file=./$escapedName,format=raw,if=ide",
         '-boot', 'c', '-snapshot', '-nic', 'none',
         '-serial', 'stdio', '-monitor', 'none'
     )
+    if ($Headless) { $qemuArguments += @('-display', 'none') }
     if ($CheckOnly) {
-        [ordered]@{ Qemu = $qemu; Image = $image; Arguments = $qemuArguments } | ConvertTo-Json -Depth 3
+        [ordered]@{
+            Qemu = $qemu
+            Image = $image
+            WorkingDirectory = $workingDirectory
+            StageImage = ($null -ne $stagingDirectory)
+            Arguments = $qemuArguments
+        } | ConvertTo-Json -Depth 3
         exit 0
     }
     Write-Host 'XP / 96 - starting your operating system' -ForegroundColor Cyan
     Write-Host 'Press Ctrl+Alt to release the mouse. Close the QEMU window to exit.'
     Write-Host 'RAM notes are not saved. Your Windows installation is not changed.'
-    & $qemu @qemuArguments
-    exit $LASTEXITCODE
+    $locationChanged = $false
+    try {
+        if ($stagingDirectory) {
+            $null = [System.IO.Directory]::CreateDirectory($stagingDirectory)
+            [System.IO.File]::Copy($image, (Join-Path $stagingDirectory $diskName), $false)
+        }
+        Push-Location -LiteralPath $workingDirectory
+        $locationChanged = $true
+        & $qemu @qemuArguments
+        $qemuExit = $LASTEXITCODE
+    } finally {
+        if ($locationChanged) { Pop-Location }
+        if ($stagingDirectory -and [System.IO.Directory]::Exists($stagingDirectory)) {
+            [System.IO.Directory]::Delete($stagingDirectory, $true)
+        }
+    }
+    exit $qemuExit
 } catch {
     [Console]::Error.WriteLine('XP / 96: ' + $_.Exception.Message)
     exit 1

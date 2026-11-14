@@ -76,3 +76,26 @@ jobs:
       - name: Test the real batch and PowerShell entry points
         shell: powershell
         run: .\tests\windows-launcher.ps1 -PackagePath "$env:GITHUB_WORKSPACE\downloaded-windows"
+      - name: Install hash-pinned native Windows QEMU
+        shell: powershell
+        run: |
+          # SHA256 and URL from microsoft/winget-pkgs, SoftwareFreedomConservancy.QEMU 11.1.0 (x64).
+          $installer = Join-Path $env:RUNNER_TEMP 'qemu-windows-setup.exe'
+          Invoke-WebRequest -UseBasicParsing -Uri 'https://qemu.weilnetz.de/w64/2026/qemu-w64-setup-20260811.exe' -OutFile $installer
+          $expected = 'F98A8AEB5F7FAEA9765B6DEE28316C266CD179D80354A2FED8E50176F9A2E59F'
+          if ((Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash -ne $expected) {
+            throw 'QEMU installer SHA256 mismatch.'
+          }
+          $setup = Start-Process -FilePath $installer -ArgumentList '/S' -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw "QEMU setup failed: $($setup.ExitCode)" }
+      - name: Boot the packaged OS in real Windows QEMU with Cyrillic paths
+        shell: powershell
+        run: .\tests\windows-qemu.ps1 -PackagePath "$env:GITHUB_WORKSPACE\downloaded-windows"
+      - name: Upload native QEMU boot logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-qemu-logs
+          retention-days: 14
+          if-no-files-found: ignore
+          path: build/windows-qemu-logs/

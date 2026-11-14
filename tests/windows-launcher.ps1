@@ -1,4 +1,4 @@
-# Native Windows integration checks. The real kernel boot is tested separately in v86.
+# Windows process/argument regression checks. Real boot is also covered by windows-qemu.ps1.
 param([Parameter(Mandatory = $true)][string]$PackagePath)
 $ErrorActionPreference = 'Stop'
 
@@ -44,7 +44,7 @@ function Invoke-Batch {
 }
 
 $temporary = Join-Path ([System.IO.Path]::GetTempPath()) ('xp96-test-' + [guid]::NewGuid())
-$environmentNames = @('PATH', 'QEMU', 'ProgramFiles', 'ProgramW6432', 'ProgramFiles(x86)', 'XP96_NO_PAUSE', 'XP96_TEST_ARGS', 'XP96_TEST_EXIT')
+$environmentNames = @('PATH', 'QEMU', 'ProgramFiles', 'ProgramW6432', 'ProgramFiles(x86)', 'XP96_NO_PAUSE', 'XP96_TEST_ARGS', 'XP96_TEST_CWD', 'XP96_TEST_EXIT')
 $oldEnvironment = @{}
 foreach ($name in $environmentNames) { $oldEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 
@@ -71,6 +71,18 @@ using System.Text;
 public class Xp96QemuStub {
     public static int Main(string[] args) {
         File.WriteAllLines(Environment.GetEnvironmentVariable("XP96_TEST_ARGS"), args, new UTF8Encoding(false));
+        File.WriteAllText(Environment.GetEnvironmentVariable("XP96_TEST_CWD"), Environment.CurrentDirectory, new UTF8Encoding(false));
+        int driveIndex = Array.IndexOf(args, "-drive");
+        if (driveIndex < 0 || driveIndex + 1 >= args.Length) return 80;
+        string drive = args[driveIndex + 1];
+        if (!drive.StartsWith("file=./")) return 81;
+        foreach (char c in drive) if (c > 127) return 82;
+        const string suffix = ",format=raw,if=ide";
+        if (!drive.EndsWith(suffix)) return 83;
+        string image = drive.Substring(5, drive.Length - 5 - suffix.Length).Replace(",,", ",");
+        if (!File.Exists(image)) return 84;
+        byte[] header = File.ReadAllBytes(image);
+        if (header.Length < 512 || header[510] != 0x55 || header[511] != 0xaa) return 85;
         int code;
         return int.TryParse(Environment.GetEnvironmentVariable("XP96_TEST_EXIT"), out code) ? code : 0;
     }
@@ -78,6 +90,7 @@ public class Xp96QemuStub {
 '@
     $env:XP96_NO_PAUSE = '1'
     $env:XP96_TEST_ARGS = Join-Path $temporary 'arguments.txt'
+    $env:XP96_TEST_CWD = Join-Path $temporary 'working-directory.txt'
     $env:XP96_TEST_EXIT = '0'
     $env:QEMU = $stub
 
@@ -86,8 +99,9 @@ public class Xp96QemuStub {
     $plan = $result.Out | ConvertFrom-Json
     Assert-True ($plan.Image -eq $image) 'Image must be resolved relative to the launcher, not the working directory.'
     Assert-True ($plan.Qemu -eq $stub) 'The explicitly selected executable must be used.'
-    $drive = 'file=' + $image.Replace(',', ',,') + ',format=raw,if=ide'
-    Assert-True ($plan.Arguments -contains $drive) 'Spaces, Unicode, brackets and escaped commas must survive.'
+    $drive = 'file=./xp96.img,format=raw,if=ide'
+    Assert-True ($plan.WorkingDirectory -eq $root) 'Use the Unicode image directory as the native working directory.'
+    Assert-True ($plan.Arguments -contains $drive) 'Pass an ASCII relative filename, not a Unicode absolute path.'
     foreach ($argument in @('-snapshot', 'tcg', '64M', '-nic', 'none')) {
         Assert-True ($plan.Arguments -contains $argument) ("Missing safe launch argument: " + $argument)
     }
@@ -102,7 +116,40 @@ public class Xp96QemuStub {
     $result = Invoke-Batch
     Assert-True ($result.Code -eq 7) 'The QEMU failure code must reach the caller.'
     $env:XP96_TEST_EXIT = '0'
-    Write-Host 'PASS double-click batch entry point and error propagation'
+    Assert-True ((Get-Content -LiteralPath $env:XP96_TEST_CWD -Raw -Encoding UTF8) -eq $root) 'The real child must run in the image directory.'
+    Write-Host 'PASS double-click batch entry point, relative file opening and error propagation'
+
+    $copy = Join-Path $root 'copy, [with space].img'
+    Copy-Item -LiteralPath $image -Destination $copy
+    $result = Invoke-Script -Parameters @('-ImagePath', $copy, '-CheckOnly', '-Headless')
+    Assert-True ($result.Code -eq 0) ("Custom image planning failed: " + $result.Error)
+    $copyPlan = $result.Out | ConvertFrom-Json
+    Assert-True ($copyPlan.Arguments -contains 'file=./copy,, [with space].img,format=raw,if=ide') 'Escape literal commas in the relative basename.'
+    Assert-True ($copyPlan.Arguments -contains '-display') 'Headless mode must request no display.'
+    $result = Invoke-Script -Parameters @('-ImagePath', $copy, '-Headless')
+    Assert-True ($result.Code -eq 0) ("Relative custom filename failed: " + $result.Error)
+    Write-Host 'PASS custom ASCII filename, comma escaping and headless mode'
+
+    $unicodeImage = Join-Path $root ($unicode + '.img')
+    Copy-Item -LiteralPath $image -Destination $unicodeImage
+    $before = (Get-FileHash -LiteralPath $unicodeImage -Algorithm SHA256).Hash
+    $result = Invoke-Script -Parameters @('-ImagePath', $unicodeImage, '-CheckOnly')
+    Assert-True ($result.Code -eq 0) ("Unicode filename planning failed: " + $result.Error)
+    $unicodePlan = $result.Out | ConvertFrom-Json
+    Assert-True ($unicodePlan.StageImage -eq $true) 'Stage a Unicode basename under an ASCII filename.'
+    Assert-True (-not (Test-Path -LiteralPath $unicodePlan.WorkingDirectory)) 'CheckOnly must not create a staging directory.'
+    $result = Invoke-Script -Parameters @('-ImagePath', $unicodeImage)
+    Assert-True ($result.Code -eq 0) ("Unicode filename launch failed: " + $result.Error)
+    $staged = Get-Content -LiteralPath $env:XP96_TEST_CWD -Raw -Encoding UTF8
+    Assert-True (-not (Test-Path -LiteralPath $staged)) 'Clean up the staged copy after successful exit.'
+    $env:XP96_TEST_EXIT = '7'
+    $result = Invoke-Script -Parameters @('-ImagePath', $unicodeImage)
+    Assert-True ($result.Code -eq 7) 'Preserve QEMU exit codes when staging.'
+    $staged = Get-Content -LiteralPath $env:XP96_TEST_CWD -Raw -Encoding UTF8
+    Assert-True (-not (Test-Path -LiteralPath $staged)) 'Also clean up staging on QEMU failure.'
+    $env:XP96_TEST_EXIT = '0'
+    Assert-True ((Get-FileHash -LiteralPath $unicodeImage -Algorithm SHA256).Hash -eq $before) 'Never modify or rename the original image.'
+    Write-Host 'PASS Unicode image basename, side-effect-free check and staging cleanup'
 
     $env:QEMU = ''
     $env:PATH = $stubDirectory + ';' + $oldEnvironment['PATH']
