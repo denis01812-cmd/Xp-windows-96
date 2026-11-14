@@ -32,7 +32,27 @@
 
 ## 🪟 Запуск на Windows
 
-Самый простой способ собрать проект на Windows — через **Ubuntu в WSL**. Сначала сделай это один раз:
+### Готовая ОС — без WSL, Linux и компиляции
+
+1. Установи **[QEMU для Windows](https://www.qemu.org/download/#windows)**. Стандартная папка — `C:\Program Files\qemu`.
+2. Открой **[Actions → Build and boot](https://github.com/denis01812-cmd/Xp-windows-96/actions/workflows/build.yml)** и выбери новую успешную сборку для ветки `arena/42613a73-xp-windows-96`.
+3. Внизу в **Artifacts** скачай **`xp96-windows`**. Нужен именно этот артефакт, а не `Code → Download ZIP` с исходниками.
+4. Нажми по архиву правой кнопкой → **«Извлечь всё…»**. Сохрани папку `tools` и остальные файлы рядом с образом.
+5. Дважды щёлкни **`Start-XP96.bat`** — откроется ОС в QEMU.
+
+**Python, npm, Git и WSL для готового архива не нужны.** Это запуск гостевой ОС в отдельном окне, не установка вместо Windows. `Ctrl+Alt` освобождает мышь; закрытие окна QEMU завершает работу.
+
+Запускатель ищет QEMU в `PATH` и Program Files; поддерживает `qemu-system-i386.exe` и `qemu-system-x86_64.exe`. Если он установлен нестандартно:
+
+```powershell
+.\Start-XP96.bat -QemuPath "D:\Programs\qemu\qemu-system-i386.exe"
+```
+
+**[Подробная инструкция для Windows со всеми шагами и ошибками →](docs/WINDOWS.md)**
+
+### Если хочешь собирать исходники на Windows
+
+Для **сборки**, а не просто запуска готовой ОС, используй **Ubuntu в WSL**. Сначала сделай это один раз:
 
 1. Открой **PowerShell от имени администратора**.
 2. Выполни:
@@ -126,8 +146,8 @@ qemu-system-i386 -machine pc -cpu qemu32 -m 64M -vga std \
 
 1. Открой вкладку **[Actions](https://github.com/denis01812-cmd/Xp-windows-96/actions)**.
 2. Найди успешный запуск **Build and boot** для ветки `arena/42613a73-xp-windows-96`.
-3. Внизу в **Artifacts** скачай `xp96-image` и распакуй ZIP. Для скачивания артефактов GitHub может потребоваться вход в аккаунт.
-4. Установи [QEMU](https://www.qemu.org/download/) и открой терминал в папке с распакованным `xp96.img`:
+3. Для **Windows** скачай **`xp96-windows`**, распакуй весь ZIP и запусти `Start-XP96.bat` после установки QEMU — [подробно](docs/WINDOWS.md). Для других систем есть **`xp96-image`** с одним образом и диагностикой. Для скачивания артефактов GitHub может потребоваться вход в аккаунт.
+4. Для ручного запуска образа установи [QEMU](https://www.qemu.org/download/) и открой терминал в папке с распакованным `xp96.img`:
 
    ```bash
    qemu-system-i386 -m 64M -vga std -drive file=xp96.img,format=raw,if=ide -boot c
@@ -181,6 +201,7 @@ reboot             перезагрузить гостевую ОС
 
 ```text
 Xp-windows-96/
+├── Start-XP96.bat           # Windows: запуск готового образа двойным щелчком
 ├── boot/
 │   ├── boot.S               # BIOS: первый сектор, загрузка второго этапа
 │   └── loader.S             # Загрузка ядра, VBE, A20, GDT, protected mode
@@ -197,11 +218,15 @@ Xp-windows-96/
 ├── tools/
 │   ├── build.py             # Python: компиляция и сборка xp96.img
 │   ├── run.py               # Python: сборка и запуск QEMU
+│   ├── run-windows.ps1      # Windows PowerShell: поиск QEMU, без сборки и WSL
+│   ├── package_windows.py   # Python: готовый ZIP для Windows с проверкой SHA256
 │   ├── fetch_bios.py        # BIOS для v86: фиксированная версия и проверка SHA256
 │   └── preview.py           # Python: сервер браузерного превью
 ├── tests/
 │   ├── test_build.py        # Проверки образа и безопасности путей превью
-│   └── boot.mjs             # Настоящая загрузка и ввод в x86-эмуляторе
+│   ├── boot.mjs             # Настоящая загрузка и ввод в x86-эмуляторе
+│   ├── test_windows_package.py # Проверки комплектации и целостности Windows ZIP
+│   └── windows-launcher.ps1 # Нативные Windows-тесты сценария запуска
 ├── web/                     # Только оболочка эмулятора, НЕ реализация ОС
 │   ├── index.html
 │   ├── style.css
@@ -209,7 +234,8 @@ Xp-windows-96/
 │   └── favicon.svg
 ├── docs/
 │   ├── desktop.png          # Реальный скриншот загруженного ядра
-│   └── ARCHITECTURE.md      # Как устроены загрузка, память и события
+│   ├── ARCHITECTURE.md      # Как устроены загрузка, память и события
+│   └── WINDOWS.md           # Запуск на Windows без WSL, шаг за шагом
 ├── .github/workflows/build.yml
 ├── .editorconfig
 ├── .gitignore
@@ -238,7 +264,7 @@ npm test
 node tests/boot.mjs --update-screenshot
 ```
 
-Автосборка GitHub Actions также сохраняет образ, ELF, SHA256-манифест, скриншоты и лог загрузки. Локально загрузка и взаимодействие проверены в **v86**; скрипт QEMU предоставлен отдельно.
+Автосборка GitHub Actions сохраняет образ, готовый архив **`xp96-windows`**, ELF, SHA256-манифест, скриншоты и лог загрузки. Windows-запускатель отдельно проверяется на **Windows**: поиск QEMU, передача аргументов через `.bat` и PowerShell, пути с пробелами и кириллицей, сообщения об ошибках. Для проверки вызова используется тестовый исполняемый файл, а не настоящий QEMU. Реальная загрузка ядра и взаимодействие проверяются в **v86**.
 
 ## Если что-то не запускается
 

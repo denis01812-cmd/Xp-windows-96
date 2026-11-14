@@ -37,6 +37,15 @@ jobs:
         run: python3 tools/build.py
       - name: Test image, real boot and input
         run: npm test
+      - name: Package the Windows launcher and prebuilt image
+        run: python3 tools/package_windows.py
+      - name: Upload the ready-to-run Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp96-windows
+          retention-days: 14
+          if-no-files-found: error
+          path: build/xp96-windows/
       - name: Upload bootable image and diagnostics
         uses: actions/upload-artifact@v4
         with:
@@ -50,3 +59,20 @@ jobs:
             build/desktop.png
             build/start-menu.png
             build/boot-test.log
+
+  windows-launcher:
+    name: Windows launcher
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Download the packaged Windows build
+        uses: actions/download-artifact@v4
+        with:
+          name: xp96-windows
+          path: downloaded-windows
+      - name: Test the real batch and PowerShell entry points
+        shell: powershell
+        run: .\tests\windows-launcher.ps1 -PackagePath "$env:GITHUB_WORKSPACE\downloaded-windows"
