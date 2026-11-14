@@ -1,0 +1,17 @@
+# Reproducible build output and downloaded emulator dependencies
+/build/
+/node_modules/
+/.cache/
+
+# Python and editor files
+__pycache__/
+*.py[cod]
+.venv/
+.vscode/
+.idea/
+.DS_Store
+
+# Never publish local credentials
+.env
+.env.*
+!.env.example

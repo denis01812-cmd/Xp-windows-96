@@ -1,0 +1,14 @@
+{
+  "name": "xp-windows-96",
+  "version": "0.1.0",
+  "private": true,
+  "description": "An independent, bootable C++ hobby OS with Python build tools.",
+  "scripts": {
+    "build": "python3 tools/build.py",
+    "dev": "python3 tools/preview.py",
+    "test": "python3 -m unittest discover -s tests -v && node tests/boot.mjs"
+  },
+  "devDependencies": {
+    "v86": "0.5.473"
+  }
+}

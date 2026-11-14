@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f4f6f4" />
+    <meta
+      name="description"
+      content="XP / 96 — независимая учебная ОС на C++ с инструментами на Python. Настоящий загрузочный образ прямо в браузере."
+    />
+    <title>XP / 96 — твой собственный маленький мир</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/style.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <header class="header page-width">
+      <a class="brand" href="#" aria-label="XP / 96 — в начало"
+        ><img src="/favicon.svg" width="34" height="34" alt="" /><span
+          >xp<span class="brand-slash">/</span>96<span class="brand-dot"
+            >.</span
+          ></span
+        ></a
+      >
+      <nav aria-label="Основная навигация">
+        <a class="nav-desktop" href="#desktop">Рабочий стол</a>
+        <a href="#inside">Под капотом</a>
+        <a
+          class="source-link"
+          href="https://github.com/denis01812-cmd/Xp-windows-96/tree/arena/42613a73-xp-windows-96"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Исходники <span aria-hidden="true">↗</span></a
+        >
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero page-width">
+        <div class="hero-copy">
+          <div class="eyebrow">
+            <span class="status-dot"></span> НЕЗАВИСИМАЯ ОС · ПЕРВАЯ ГЛАВА
+          </div>
+          <h1>Знакомое настроение.<br /><span>Совсем твоя система.</span></h1>
+          <p>
+            Немного синего. Немного зелёного. И настоящее ядро на C++.<br
+              class="desktop-break"
+            />
+            Маленькая операционная система с большой ностальгией.
+          </p>
+        </div>
+        <div class="version-card" aria-label="Версия 0.1.0, ранняя разработка">
+          <span class="version-label">HELLO, WORLD AGAIN.</span>
+          <strong>0.1<span>.0</span></strong>
+          <span class="version-note"
+            ><span class="status-dot"></span> Ранняя разработка</span
+          >
+        </div>
+      </section>
+
+      <section
+        class="desktop-section page-width"
+        id="desktop"
+        aria-labelledby="desktop-heading"
+      >
+        <div class="section-heading">
+          <div>
+            <span class="section-index">01 /</span>
+            <h2 id="desktop-heading">Твой новый старый рабочий стол</h2>
+          </div>
+          <span class="live-label" id="status" role="status"
+            ><span class="status-dot"></span
+            ><span id="status-text">ЗАГРУЗКА ЯДРА</span></span
+          >
+        </div>
+        <div class="vm-shell" id="vm-shell">
+          <div class="vm-toolbar">
+            <div class="vm-title">
+              <span class="window-dots" aria-hidden="true"
+                ><i></i><i></i><i></i></span
+              ><span
+                >xp96 <span class="toolbar-muted">/ virtual machine</span></span
+              >
+            </div>
+            <div class="vm-actions">
+              <button
+                id="pause"
+                type="button"
+                disabled
+                aria-label="Приостановить эмулятор"
+              >
+                <svg viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="M7 5v10M13 5v10" /></svg
+                ><span>Пауза</span>
+              </button>
+              <button
+                id="restart"
+                type="button"
+                disabled
+                aria-label="Перезагрузить ОС"
+              >
+                <svg viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="M15.5 7a6 6 0 1 0 .1 5M15.5 3.5v4h-4" /></svg
+                ><span>Заново</span>
+              </button>
+              <button
+                id="fullscreen"
+                type="button"
+                aria-label="Развернуть экран"
+              >
+                <svg viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4" />
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="vm-stage">
+            <div
+              id="screen_container"
+              tabindex="0"
+              role="application"
+              aria-label="Рабочий стол XP / 96. Нажми для ввода с клавиатуры. F1–F5 открывают приложения."
+            >
+              <div class="text-screen"></div>
+              <canvas style="display: none"></canvas>
+            </div>
+            <div class="boot-overlay" id="boot-overlay" role="status">
+              <img src="/favicon.svg" width="52" height="52" alt="" />
+              <strong id="boot-title">У каждого мира есть начало.</strong>
+              <span id="boot-message">BIOS → загрузчик → твоё ядро</span>
+              <div class="boot-progress"><span></span></div>
+            </div>
+          </div>
+          <div class="vm-footer">
+            <span
+              ><span class="status-dot"></span> x86 · 64 МБ RAM · 800 ×
+              600</span
+            ><button id="capture" type="button" disabled>
+              Захватить мышь <span aria-hidden="true">↗</span>
+            </button>
+          </div>
+        </div>
+        <div class="desktop-under">
+          <p>
+            <span class="hint-mark" aria-hidden="true">↳</span> Нажми на экран
+            для ввода. <kbd>Esc</kbd> освобождает захваченную мышь.
+          </p>
+          <a href="/xp96.img" download="xp96.img" class="download-link"
+            >Скачать образ <span>2 МБ ↓</span></a
+          >
+        </div>
+        <div class="shortcuts" aria-label="Открыть приложение в ОС">
+          <span class="shortcut-label">ПОПРОБУЙ</span>
+          <button type="button" data-key="59" disabled>
+            <kbd>F1</kbd> Приветствие
+          </button>
+          <button type="button" data-key="60" disabled>
+            <kbd>F2</kbd> Файлы
+          </button>
+          <button type="button" data-key="61" disabled>
+            <kbd>F3</kbd> Терминал
+          </button>
+          <button type="button" data-key="62" disabled>
+            <kbd>F4</kbd> Заметки
+          </button>
+          <button type="button" data-key="63" disabled>
+            <kbd>F5</kbd> О системе
+          </button>
+        </div>
+        <noscript
+          ><p class="notice">
+            Для браузерного эмулятора нужен JavaScript. Сам образ ОС можно
+            запустить в QEMU без JavaScript.
+          </p></noscript
+        >
+      </section>
+
+      <section
+        class="inside page-width"
+        id="inside"
+        aria-labelledby="inside-heading"
+      >
+        <div class="inside-intro">
+          <div class="eyebrow">02 / НИКАКОЙ МАГИИ. ПОЧТИ.</div>
+          <h2 id="inside-heading">
+            Внутри — твой код.<br />Всё по-настоящему.
+          </h2>
+          <p>
+            Это не рабочий стол, нарисованный в HTML.<br />В окне выше
+            x86-эмулятор исполняет загрузчик<br class="desktop-break" />
+            и машинный код собственного ядра.
+          </p>
+          <a
+            href="https://github.com/denis01812-cmd/Xp-windows-96/tree/arena/42613a73-xp-windows-96"
+            target="_blank"
+            rel="noopener noreferrer"
+            >Посмотреть все исходники <span aria-hidden="true">↗</span></a
+          >
+        </div>
+        <div class="feature-grid">
+          <article class="feature">
+            <span class="feature-number">01</span>
+            <div class="feature-icon blue-icon" aria-hidden="true">C++</div>
+            <h3>Своё маленькое ядро</h3>
+            <p>
+              32-битный защищённый режим,<br />собственный вывод графики,<br />таймер
+              и ввод PS/2.
+            </p>
+          </article>
+          <article class="feature">
+            <span class="feature-number">02</span>
+            <div class="feature-icon green-icon" aria-hidden="true">Py</div>
+            <h3>Python помогает снаружи</h3>
+            <p>
+              Собирает загрузочный образ,<br />проверяет его структуру<br />и
+              запускает эмулятор.
+            </p>
+          </article>
+        </div>
+      </section>
+      <aside class="notice page-width">
+        <span class="notice-icon" aria-hidden="true">i</span>
+        <p>
+          <strong>Маленькая ОС, а не замена Windows.</strong> Пока без
+          установки, сети, запуска EXE и файловой системы на диске. Заметки
+          живут только в ОЗУ. Интерфейс и раскладка внутри ОС — английские.
+        </p>
+      </aside>
+    </main>
+    <footer class="footer page-width">
+      <span
+        >xp / 96<span class="brand-dot">.</span>
+        <span class="footer-divider">/</span> Сделано, чтобы разобраться.</span
+      ><span>C++ внутри. Любопытство снаружи.</span>
+    </footer>
+  </body>
+</html>

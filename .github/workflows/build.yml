@@ -1,0 +1,52 @@
+name: Build and boot
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install the pinned x86 emulator
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Cache verified firmware
+        uses: actions/cache@v4
+        with:
+          path: .cache/bios
+          key: seabios-315b2b0b758703ef0e6cc7b4088d6068f83f3c20
+      - name: Fetch and verify firmware
+        run: python3 tools/fetch_bios.py
+      - name: Build bootable image
+        run: python3 tools/build.py
+      - name: Test image, real boot and input
+        run: npm test
+      - name: Upload bootable image and diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: xp96-image
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            build/xp96.img
+            build/kernel.elf
+            build/manifest.json
+            build/desktop.png
+            build/start-menu.png
+            build/boot-test.log
